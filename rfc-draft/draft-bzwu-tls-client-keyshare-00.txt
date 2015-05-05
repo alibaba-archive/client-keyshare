@@ -1,0 +1,392 @@
+
+
+
+
+TLS                                                               BZ. Wu
+Internet-Draft                                              Alibaba Inc.
+Intended status: Standards Track                          April 28, 2015
+Expires: October 30, 2015
+
+
+        Transport Layer Security (TLS) Client Keyshare Extension
+                   draft-bzwu-tls-client-keyshare-00
+
+Abstract
+
+   This document defines an extension that allows a TLS client to carry
+   Diffie-Hellman (DH) keyshare in ClientHello message, replacing
+   ClientKeyExchange message in the 2nd round-trip, so as to reduce the
+   full handshake latency of one network round-trip time (RTT).
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at http://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on October 30, 2015.
+
+Copyright Notice
+
+   Copyright (c) 2015 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (http://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Simplified BSD License text as described in Section 4.e of
+   the Trust Legal Provisions and are provided without warranty as
+   described in the Simplified BSD License.
+
+
+
+
+Wu                      Expires October 30, 2015                [Page 1]
+
+Internet-Draft        TLS Client Keyshare Extension           April 2015
+
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   2
+   2.  Requirements Notation . . . . . . . . . . . . . . . . . . . .   4
+   3.  Client Keyshare Extension . . . . . . . . . . . . . . . . . .   4
+     3.1.  Extension-data Specification  . . . . . . . . . . . . . .   4
+     3.2.  Message Flow with This Extension  . . . . . . . . . . . .   5
+   4.  Interaction . . . . . . . . . . . . . . . . . . . . . . . . .   6
+   5.  Security Considerations . . . . . . . . . . . . . . . . . . .   7
+   6.  IANA Considerations . . . . . . . . . . . . . . . . . . . . .   7
+   7.  References  . . . . . . . . . . . . . . . . . . . . . . . . .   7
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .   7
+
+1.  Introduction
+
+   A full TLS handshake as specified in TLS [TLSv1.2] requires 2-RTT,
+   mostly because of the ClientKeyExchange message in the 2nd round-
+   trip, which is used for key exchange.  The new version, TLS version
+   1.3 which works in progress, provides 1-RTT mode, by sending DH
+   keyshare immediately after ClientHello in the 1st round-trip, called
+   ClientKeyShare message.  However it will takes long time to finalize
+   the draft and deploy.
+
+   This document defines a TLS extension that allows the client using
+   current TLS version to carry DH keyshares in ClientHello message in
+   the 1st round-trip.  This leads to a latency reduction of 1-RTT.
+   Elliptic Curve (EC) and Finite Field (FF) keyshare types are
+   supported.
+
+   The full handshake looks as follows with this extension.  A client
+   takes this extension with DH keyshare in ClientHello message.  A
+   server receiving this extension echos in ServerHello message to
+   indicate enable it in this session, and sends ServerKeyExchange to
+   complete key exchange (with the DH keyshare in client's extension).
+   Since there is no ClientKeyExchange to wait for, server sends no
+   ServerHelloDone, but ChangeCipherSpec and Finished immediately, which
+   is like the abbreviated handshake flow.
+
+   The message flow of normal full handshake is illustrated in Figure 1;
+   and the message flow of handshake using this extension is illustrated
+   in Figure 2.
+
+
+
+
+
+
+
+
+
+
+Wu                      Expires October 30, 2015                [Page 2]
+
+Internet-Draft        TLS Client Keyshare Extension           April 2015
+
+
+         Client                                               Server
+
+         ClientHello                  -------->
+                                                         ServerHello
+                                                        Certificate*
+                                                  ServerKeyExchange*
+                                                 CertificateRequest*
+                                      <--------      ServerHelloDone
+         Certificate*
+         ClientKeyExchange
+         CertificateVerify*
+         [ChangeCipherSpec]
+         Finished                     -------->
+                                                  [ChangeCipherSpec]
+                                      <--------             Finished
+         Application Data             <------->     Application Data
+
+         Figure 1 [TLSv1.2].  Message flow of normal full handshake
+
+
+         Client                                               Server
+
+         ClientHello                  -------->
+         {with client_keyshare extension}
+                                                         ServerHello
+                                                        Certificate*
+                                                   ServerKeyExchange
+                                                  [ChangeCipherSpec]
+                                      <--------             Finished
+         [ChangeCipherSpec]
+         Finished                     -------->
+         Application Data             <------->     Application Data
+
+                 Figure 2 Message flow using this extension
+
+
+   For TLS extension mechanism, this extension works only if client and
+   server both support it.  For example, if a server who does not
+   support this extension receives a ClientHello message with this
+   extension, the server just ignores it.
+
+   This extension only works if the negotiated key exchange algorithm is
+   DH-like, FFDH(Ephemeral) or ECDH(Ephemeral).  Obviously client has to
+   send ClientKeyExchange after getting server's certificate if using
+   RSA as key exchange, so it can not benefit from this extension
+   normally.  Although the client may get server's certificate before
+   handshake by Cached Infomation extension which works in progress, we
+   does not support RSA key exchange for simplicity, and that DH-like is
+
+
+
+Wu                      Expires October 30, 2015                [Page 3]
+
+Internet-Draft        TLS Client Keyshare Extension           April 2015
+
+
+   better than RSA (TLS version 1.3, which works in progress, is going
+   to remove support for RSA key exchange).
+
+   Since the client does not know which DH types and parameters the
+   server supports, it MAY takes more than one DH keyshares in this
+   extension.  The server picks one DH keyshare of the same type with
+   the key exchange algorithm (FF or ECC) and acceptable parameters,
+   used for key exchange.  If there is no suitable keyshare, the server
+   just ignores this extension.
+
+   Besides, this extension does not work if server requests client's
+   certificate, which also need 1 RTT.
+
+   Finally, this extension only works in full handshake, while not in
+   abbreviated handshake which does not need key exchange.
+
+2.  Requirements Notation
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
+   document are to be interpreted as described in RFC 2119 [KEYWORDS].
+
+3.  Client Keyshare Extension
+
+   This document defines a new extension type (client_keyshare(TBD)),
+   which is used in ClientHello and ServerHello messages.  The extension
+   type is specified as follows.
+
+            enum {
+                 client_keyshare(TBD), (65535)
+            } ExtensionType;
+
+3.1.  Extension-data Specification
+
+   The extension_data field of this extension, when included in the
+   ClientHello, MUST contain the ClientKeyshare structure, which offers
+   one or more ClientKeyShareOffer values, each representing a single
+   set of DH key agreement parameters.  The shares for each
+   ClientKeyShareOffer MUST be generated independently.  Clients MUST
+   NOT offer multiple ClientKeyShareOffers for the same parameters.  The
+   shares SHOULD keep the same order with elliptic_curves extension
+   [TLSv1.2], to indicate client's preferences.
+
+   Only NamedCurves [TLSECC] (for EC type) and NegotiatedParameters
+   (which works in progress) (for FF type) are supported.  While generic
+   parameters are not supported for safety and simplicity.
+
+
+
+
+
+Wu                      Expires October 30, 2015                [Page 4]
+
+Internet-Draft        TLS Client Keyshare Extension           April 2015
+
+
+            struct {
+                 ClientKeyShareOffer offers<0..2^16-1>;
+            } ClientKeyShare;
+
+            struct {
+                 NamedGroup    group_id;
+                 select (typeof(group_id)) {
+                     case FF:  ClientDiffieHellmanPublic;
+                     case EC:  ECPoint;
+                 } public_key;
+            } ClientKeyShareOffer;
+
+   group_id
+      Specifies the DH parameters associated with the public key.
+      NamedGroup is extended from NamedCurve [TLSECC] by Negotiated
+      Finite Field Diffie-Hellman Ephemeral Parameters for TLS, which
+      works in progress, for supporting finite-field-based DH.
+
+   public_key
+      The ephemeral DH public key.  It's in ClientDiffieHellmanPublic
+      format [TLSv1.2] for FF type, or in ECPoint format [TLSECC] for EC
+      type.
+
+   Because the key exchange is made by ClientKeyshare extension and
+   ServerKeyExchange message, it's not need to take value in
+   extension_data when included in ServerHello.  The server just echo
+   the extension with empty extension_data to indicate enable it in this
+   session.
+
+3.2.  Message Flow with This Extension
+
+   In TLS handshake, client adds this extension in ClientHello, with one
+   or more DH keyshares.
+
+   When receiving handshake, server enables this extension if (also
+   described in Introduction session):
+
+   -  this extension is present in ClientHello;
+
+   -  the negotiated key-exchange algorithm is DH-like;
+
+   -  at least one acceptable ClientKeyShareOffer;
+
+   -  client's certificate is not required;
+
+   -  and it's full handshake but not abbreviated.
+
+   If enabled, the server then:
+
+
+
+Wu                      Expires October 30, 2015                [Page 5]
+
+Internet-Draft        TLS Client Keyshare Extension           April 2015
+
+
+   -  adds this extension in ServerHello with empty extension_data, to
+      indicate enable this extension;
+
+   -  picks one acceptable ClientKeyShareOffer for key exchange,
+      generates an DH keyshare with the same parameters as the picked
+      ClientKeyShareOffer, sends it in ServerKeyExchange, and completes
+      the key exchange with them;
+
+   -  and does not wait for ClientKeyExchange, or sends ServerHelloDone;
+      but sends ChangeCipherSpec and Finished immediately.  It's like
+      the abbreviated handshake flow.
+
+   The client enables this extension if the server echos this extension
+   in ServerHello.
+
+   If enabled, the client then:
+
+   -  picks the ClientKeyShareOffer containing the same parameters with
+      ServerKeyExchange, to complete key exchange.  If there is no such
+      ClientKeyShareOffer, client MUST abort the handshake with an
+      illegal_parameter fatal alert;
+
+   -  does not send ClientKeyExchange;
+
+   -  and expects not ServerHelloDone but ChangeCipherSpec and Finished
+      after ServerKeyExchange.  It's like the abbreviated handshake
+      flow.
+
+4.  Interaction
+
+   Server sends ChangeCipherSpec and Finished after ServerKeyExchange,
+   if this extension is enabled, in Figure 2.  However there may be any
+   messages between ServerKeyExchange and ChangeCipherSpec, like
+   NewSessionTicket message if Session Ticket extension works [TICKET].
+
+   In Session Hash extension, which works in progress,
+   "handshake_messages" refers to all handshake messages up to and
+   including the ClientKeyExchange message.  There is no
+   ClientKeyExchange if this client_keyshare extension is enabled.  So
+   the "handshake_messages" should be changed to refer to all handshake
+   messages up to and including the ServerKeyExchange message, without
+   break Session Hash extension.
+
+   Negotiated Finite Field Diffie-Hellman Ephemeral Parameters for TLS
+   where the FF NegotiatedParameters are defined, which works in
+   progress, only supports FFDH-ephemeral but not FFDH-static.  This
+   extension dose too.
+
+
+
+
+Wu                      Expires October 30, 2015                [Page 6]
+
+Internet-Draft        TLS Client Keyshare Extension           April 2015
+
+
+5.  Security Considerations
+
+   This extension brings client's DH keyshare forward, from
+   ClientKeyExchange message in the 2nd round-trip, to ClientHello
+   message in the 1st round-trip.  The TLS version 1.3, which works in
+   progress, also works like this.  So I have not find any security
+   problem about this extension yet.
+
+6.  IANA Considerations
+
+   IANA is requested to add an entry to the existing TLS ExtensionType
+   registry, defined in TLS [TLSv1.2], for client_keyshare(TBD) defined
+   in this document.
+
+7.  References
+
+   [KEYWORDS]
+              Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", RFC 2119, March 1997.
+
+   [TICKET]   Salowey, J., Zhou, H., Eronen, P., and H. Tschofenig,
+              "Transport Layer Security (TLS) Session Resumption without
+              Server-Side State", RFC 5077, January 2008.
+
+   [TLSECC]   Blake-Wilson, S., Bolyard, N., Gupta, V., Hawk, C., and B.
+              Moeller, "Elliptic Curve Cryptography (ECC) Cipher Suites
+              for Transport Layer Security (TLS)", RFC 4492, May 2006.
+
+   [TLSv1.2]  Dierks, T. and E. Rescorla, "The Transport Layer Security
+              (TLS) Protocol Version 1.2", RFC 5246, August 2008.
+
+Author's Address
+
+   Bingzheng Wu
+   Alibaba Inc.
+
+   EMail: bingzheng.wbz@alibaba-inc.com
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Wu                      Expires October 30, 2015                [Page 7]

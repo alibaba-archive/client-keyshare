@@ -1,0 +1,339 @@
+<?xml version="1.0" encoding="US-ASCII"?>
+<!DOCTYPE rfc SYSTEM "rfc2629.dtd">
+<rfc category="std" docName="draft-bzwu-tls-client-keyshare-00">
+
+<?rfc rfcedstyle="yes"?>
+<?rfc toc="yes"?>
+<?rfc tocindent="yes"?>
+<?rfc sortrefs="yes"?>
+<?rfc symrefs="yes"?>
+<?rfc strict="yes"?>
+<?rfc comments="yes"?>
+<?rfc inline="yes"?>
+<?rfc text-list-symbols="-o*+"?>
+
+  <front>
+
+    <title abbrev="TLS Client Keyshare Extension">
+      Transport Layer Security (TLS) Client Keyshare Extension</title>
+
+    <author fullname="Bingzheng Wu" initials="BZ." surname="Wu">
+      <organization>Alibaba Inc.</organization>
+      <address>
+        <email>bingzheng.wbz@alibaba-inc.com</email>
+      </address>
+    </author>
+
+    <date month="April" year="2015" />
+
+    <area>Security</area>
+
+    <workgroup>TLS</workgroup>
+
+    <keyword>SSL handshake optimize</keyword>
+
+    <abstract>
+      <t>This document defines an extension that allows a TLS client
+      to carry Diffie-Hellman (DH) keyshare in ClientHello message,
+      replacing ClientKeyExchange message in the 2nd round-trip,
+      so as to reduce the full handshake latency of one network round-trip time (RTT).</t>
+    </abstract>
+  </front>
+
+  <middle>
+    <section title="Introduction">
+      <t>A full TLS handshake as specified in TLS <xref target="TLSv1.2"/> requires 2-RTT,
+      mostly because of the ClientKeyExchange message in the 2nd round-trip, which is
+      used for key exchange.
+      The new version, TLS version 1.3 which works in progress,
+      provides 1-RTT mode, by sending DH keyshare immediately
+      after ClientHello in the 1st round-trip, called ClientKeyShare message.
+      However it will takes long time to finalize the draft and deploy. </t>
+
+      <t>This document defines a TLS extension that allows the client using current TLS
+      version to carry DH keyshares in ClientHello message in the 1st round-trip.
+      This leads to a latency reduction of 1-RTT. Elliptic Curve (EC) and Finite Field (FF)
+      keyshare types are supported.</t>
+
+      <t>The full handshake looks as follows with this extension.
+      A client takes this extension with DH keyshare in ClientHello message.
+      A server receiving this extension echos in ServerHello message to indicate enable
+      it in this session, and sends ServerKeyExchange to complete key exchange
+      (with the DH keyshare in client's extension).
+      Since there is no ClientKeyExchange to wait for, server sends no ServerHelloDone,
+      but ChangeCipherSpec and Finished immediately, which is like the abbreviated handshake flow.</t>
+
+      <t>The message flow of normal full handshake is illustrated in Figure 1; and the message
+      flow of handshake using this extension is illustrated in Figure 2.</t>
+
+      <figure><artwork align="left"><![CDATA[
+      Client                                               Server
+
+      ClientHello                  -------->
+                                                      ServerHello
+                                                     Certificate*
+                                               ServerKeyExchange*
+                                              CertificateRequest*
+                                   <--------      ServerHelloDone
+      Certificate*
+      ClientKeyExchange
+      CertificateVerify*
+      [ChangeCipherSpec]
+      Finished                     -------->
+                                               [ChangeCipherSpec]
+                                   <--------             Finished
+      Application Data             <------->     Application Data
+
+      Figure 1 [TLSv1.2].  Message flow of normal full handshake
+
+      ]]></artwork></figure>
+
+      <figure><artwork align="left"><![CDATA[
+      Client                                               Server
+
+      ClientHello                  -------->
+      {with client_keyshare extension}
+                                                      ServerHello
+                                                     Certificate*
+                                                ServerKeyExchange
+                                               [ChangeCipherSpec]
+                                   <--------             Finished
+      [ChangeCipherSpec]
+      Finished                     -------->
+      Application Data             <------->     Application Data
+
+              Figure 2 Message flow using this extension
+
+      ]]></artwork></figure>
+
+      <t>For TLS extension mechanism, this extension works only if client and server
+      both support it. For example, if a server who does not support this extension
+      receives a ClientHello message with this extension, the server just ignores it.</t>
+
+      <t>This extension only works if the negotiated key exchange algorithm is DH-like,
+      FFDH(Ephemeral) or ECDH(Ephemeral).
+      Obviously client has to send ClientKeyExchange after getting server's
+      certificate if using RSA as key exchange, so it can not benefit from this
+      extension normally. Although the client may get server's certificate before
+      handshake by Cached Infomation extension which works in progress, we
+      does not support RSA key exchange for simplicity, and that DH-like is better
+      than RSA (TLS version 1.3, which works in progress, is going to
+      remove support for RSA key exchange). </t>
+
+      <t>Since the client does not know which DH types and parameters the server supports,
+      it MAY takes more than one DH keyshares in this extension.
+      The server picks one DH keyshare of the same type with the key exchange
+      algorithm (FF or ECC) and acceptable parameters, used for key exchange.
+      If there is no suitable keyshare, the server just ignores this extension. </t>
+
+      <t>Besides, this extension does not work if server requests client's certificate,
+      which also need 1 RTT. </t>
+
+      <t>Finally, this extension only works in full handshake, while not in abbreviated
+      handshake which does not need key exchange.</t>
+
+    </section>
+
+
+    <section title="Requirements Notation">
+      <t>The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+      "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
+      document are to be interpreted as described in RFC 2119 <xref target="KEYWORDS"/>.</t>
+    </section>
+
+
+    <section title="Client Keyshare Extension">
+      <t>This document defines a new extension type (client_keyshare(TBD)), which
+      is used in ClientHello and ServerHello messages.
+      The extension type is specified as follows.  </t>
+
+      <figure><artwork><![CDATA[
+         enum {
+              client_keyshare(TBD), (65535)
+         } ExtensionType;
+      ]]></artwork></figure>
+
+      <section title="Extension-data Specification">
+
+     <t>The extension_data field of this extension, when included in the
+     ClientHello, MUST contain the ClientKeyshare structure, which 
+     offers one or more ClientKeyShareOffer values, each representing
+     a single set of DH key agreement parameters.  The shares for each
+     ClientKeyShareOffer MUST be generated independently. Clients MUST NOT
+     offer multiple ClientKeyShareOffers for the same parameters.
+     The shares SHOULD keep the same order with elliptic_curves
+     extension <xref target="TLSv1.2"/>, to indicate client's preferences.</t>
+
+     <t>Only NamedCurves <xref target="TLSECC"/> (for EC type) and NegotiatedParameters
+     (which works in progress) (for FF type) are supported.
+     While generic parameters are not supported for safety and simplicity.</t>
+
+      <figure><artwork><![CDATA[
+         struct {
+              ClientKeyShareOffer offers<0..2^16-1>;
+         } ClientKeyShare;
+
+         struct {
+              NamedGroup    group_id;
+              select (typeof(group_id)) {
+                  case FF:  ClientDiffieHellmanPublic;
+                  case EC:  ECPoint;
+              } public_key;
+         } ClientKeyShareOffer;
+      ]]></artwork></figure>
+
+       <t><list style="hanging">
+         <t hangText='group_id'><vspace blankLines='0'/>
+         Specifies the DH parameters associated with the public key.
+         NamedGroup is extended from NamedCurve <xref target="TLSECC"/>
+         by Negotiated Finite Field Diffie-Hellman Ephemeral Parameters for TLS,
+         which works in progress, for supporting finite-field-based DH.</t>
+       </list></t>
+
+       <t><list style="hanging">
+         <t hangText='public_key'><vspace blankLines='0'/>
+         The ephemeral DH public key.
+         It's in ClientDiffieHellmanPublic format <xref target="TLSv1.2"/> for FF type,
+         or in ECPoint format <xref target="TLSECC"/> for EC type.</t>
+       </list></t>
+
+     <t>Because the key exchange is made by ClientKeyshare extension and ServerKeyExchange message,
+     it's not need to take value in extension_data when included in ServerHello.
+     The server just echo the extension with empty extension_data to indicate enable it in
+     this session. </t>
+
+      </section>
+
+
+      <section title="Message Flow with This Extension">
+
+     <t>In TLS handshake, client adds this extension in ClientHello, with one or more DH keyshares.</t>
+
+     <t>When receiving handshake, server enables this extension if (also described in Introduction session):
+       <list style="symbols">
+       <t>this extension is present in ClientHello;</t>
+       <t>the negotiated key-exchange algorithm is DH-like;</t>
+       <t>at least one acceptable ClientKeyShareOffer;</t>
+       <t>client's certificate is not required;</t>
+       <t>and it's full handshake but not abbreviated.</t></list>
+     </t>
+
+     <t>If enabled, the server then:
+       <list style="symbols">
+       <t>adds this extension in ServerHello with empty extension_data, to indicate enable this extension;</t>
+       <t>picks one acceptable ClientKeyShareOffer for key exchange,
+          generates an DH keyshare with the same parameters as the picked ClientKeyShareOffer,
+          sends it in ServerKeyExchange, and completes the key exchange with them;</t>
+       <t>and does not wait for ClientKeyExchange, or sends ServerHelloDone; but sends ChangeCipherSpec
+	  and Finished immediately. It's like the abbreviated handshake flow. </t></list>
+     </t>
+
+     <t>The client enables this extension if the server echos this extension in ServerHello.</t>
+
+     <t>If enabled, the client then:
+       <list style="symbols">
+       <t>picks the ClientKeyShareOffer containing the same parameters with ServerKeyExchange, to complete key exchange.
+          If there is no such ClientKeyShareOffer, client MUST abort the handshake with an illegal_parameter fatal alert;</t>
+       <t>does not send ClientKeyExchange;</t>
+       <t>and expects not ServerHelloDone but ChangeCipherSpec and Finished after ServerKeyExchange.
+          It's like the abbreviated handshake flow. </t></list>
+     </t>
+      </section>
+
+    </section>
+
+
+    <section title="Interaction">
+
+    <t>Server sends ChangeCipherSpec and Finished after ServerKeyExchange, if this
+    extension is enabled, in Figure 2. However there may be any messages between
+    ServerKeyExchange and ChangeCipherSpec, like NewSessionTicket message if Session
+    Ticket extension works <xref target="TICKET"/>.</t>
+
+    <t>In Session Hash extension, which works in progress, "handshake_messages"
+    refers to all handshake messages up to and including the ClientKeyExchange message.
+    There is no ClientKeyExchange if this client_keyshare extension is enabled.
+    So the "handshake_messages" should be changed to refer to all handshake messages
+    up to and including the ServerKeyExchange message, without break Session Hash extension. </t>
+
+    <t>Negotiated Finite Field Diffie-Hellman Ephemeral Parameters for TLS
+    where the FF NegotiatedParameters are defined, which works in progress, only supports
+    FFDH-ephemeral but not FFDH-static. This extension dose too. </t>
+
+    </section>
+
+
+    <section title="Security Considerations">
+    <t>This extension brings client's DH keyshare forward, from ClientKeyExchange
+    message in the 2nd round-trip, to ClientHello message in the 1st round-trip.
+    The TLS version 1.3, which works in progress, also works like this.
+    So I have not find any security problem about this extension yet. </t>
+    </section>
+
+
+    <section title="IANA Considerations">
+    <t>IANA is requested to add an entry to the existing TLS ExtensionType
+   registry, defined in TLS <xref target="TLSv1.2"/>, for client_keyshare(TBD) defined
+   in this document.  </t>
+    </section>
+
+
+  </middle>
+
+  <!--  *****BACK MATTER ***** -->
+
+  <back>
+    <!-- References split into informative and normative -->
+
+   <references>
+    <reference anchor='TLSv1.2'>
+      <front>
+      <title>The Transport Layer Security (TLS) Protocol Version 1.2</title>
+      <author initials='T.' surname='Dierks' fullname='Tim Dierks' />
+      <author initials='E.' surname='Rescorla' fullname='Eric Rescorla' />
+      <date year='2008' month='August' />
+      </front>
+      <seriesInfo name='RFC' value='5246' />
+      <format type='TXT' target='https://tools.ietf.org/rfc/rfc5246.txt' />
+    </reference>
+
+    <reference anchor='KEYWORDS'>
+      <front>
+      <title>Key words for use in RFCs to Indicate Requirement Levels</title>
+      <author initials='S.' surname='Bradner' fullname='Scott Bradner' />
+      <date year='1997' month='March' />
+      </front>
+      <seriesInfo name='RFC' value='2119' />
+      <format type='TXT' target='https://www.ietf.org/rfc/rfc2119.txt' />
+    </reference>
+
+    <reference anchor='TLSECC'>
+      <front>
+      <title>Elliptic Curve Cryptography (ECC) Cipher Suites for Transport Layer Security (TLS)</title>
+      <author initials='S.' surname='Blake-Wilson' fullname='Simon Blake-Wilson' />
+      <author initials='N.' surname='Bolyard' fullname='Nelson Bolyard' />
+      <author initials='V.' surname='Gupta' fullname='Vipul Gupta' />
+      <author initials='C.' surname='Hawk' fullname='Chris Hawk' />
+      <author initials='B.' surname='Moeller' fullname='Bodo Moeller' />
+      <date year='2006' month='May' />
+      </front>
+      <seriesInfo name='RFC' value='4492' />
+      <format type='TXT' target='https://tools.ietf.org/rfc/rfc4492.txt' />
+    </reference>
+
+    <reference anchor='TICKET'>
+      <front>
+      <title>Transport Layer Security (TLS) Session Resumption without Server-Side State</title>
+      <author initials='J.' surname='Salowey' fullname='Joseph Salowey' />
+      <author initials='H.' surname='Zhou' fullname='Hao Zhou' />
+      <author initials='P.' surname='Eronen' fullname='Pasi Eronen' />
+      <author initials='H.' surname='Tschofenig' fullname='Hannes Tschofenig' />
+      <date year='2008' month='January' />
+      </front>
+      <seriesInfo name='RFC' value='5077' />
+      <format type='TXT' target='https://tools.ietf.org/rfc/rfc5077.txt' />
+    </reference>
+   </references>
+
+  </back>
+</rfc>
